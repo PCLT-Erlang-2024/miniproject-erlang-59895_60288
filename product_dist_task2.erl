@@ -1,6 +1,7 @@
 -module(product_dist_task2).
 -export([start/3, start_trucks/2, start_conveyors/1, conveyor_belt/2, truck/3]).
 
+%% == Task 2 ==
 
 %%% ========================
 %%% Entry Point
@@ -16,7 +17,7 @@ start(NumBelts, NumTrucks, TruckCapacity) ->
 
     TruckPids = start_trucks(NumTrucks, TruckCapacity),
 
-    Packages = create_packages(NumTrucks * TruckCapacity),
+    Packages = create_packages(NumTrucks * 5),
 
     % main loop
     loop(ConveyorPids, TruckPids, Packages).
@@ -25,10 +26,22 @@ start(NumBelts, NumTrucks, TruckCapacity) ->
 %%% Main Loop
 %%% ========================
 
+finish(Conveyors, Trucks) ->
+    %% Shut down conveyor belt processes
+    lists:foreach(fun(Pid) -> exit(Pid, shutdown) end, Conveyors),
+    %% Shut down truck processes
+    lists:foreach(fun(Pid) -> exit(Pid, shutdown) end, Trucks).
+
 loop(Conveyors, Trucks, Packages) -> 
     if
-        Packages =:= [] orelse Trucks =:= [] ->
-            finish(Conveyors, Trucks);
+        Packages =:= [] ->
+            finish(Conveyors, Trucks),
+            io:format("All packages loaded onto trucks.~n"),
+            init:stop();
+        Trucks =:= [] ->
+            finish(Conveyors, Trucks),
+            io:format("All trucks are full!~nRemaining package sizes: ~p~n", [Packages]),
+            init:stop();
         true ->
             receive
                 {new_package, ConveyorId} ->
@@ -38,22 +51,13 @@ loop(Conveyors, Trucks, Packages) ->
                     assign_packages(Size, Trucks),
                     loop(Conveyors, Trucks, UpdatedPackages);
 
-                {truck_full, TruckId, TruckRest} ->
+                {truck_full, TruckId, TruckRest, Size} ->
                     %% Truck full notification
-                    io:format("Truck ~p: is full.~n", [TruckId]),
-                    loop(Conveyors, TruckRest, Packages)
+                    io:format("Truck ~p: is full.~n Package with size ~p is being sent back.~n", [TruckId, Size]),
+                    loop(Conveyors, TruckRest, [Size | Packages]) % add the package back
             end
     end.
 
-finish(Conveyors, Trucks) ->
-    %% Shut down conveyor belt processes
-    lists:foreach(fun(Pid) -> exit(Pid, shutdown) end, Conveyors),
-
-    %% Shut down truck processes
-    lists:foreach(fun(Pid) -> exit(Pid, shutdown) end, Trucks),
-
-    io:format("All packages loaded onto trucks.~n"),
-    init:stop().
 
 %%% ========================
 %%% Packages
@@ -71,7 +75,7 @@ create_packages(NumPackages) ->
 % Spawns conveyor belt processes.
 start_conveyors(NumBelts) ->
     lists:map(fun(N) ->
-        spawn(?MODULE, conveyor_belt, [N, self()]) % N will be the id of the conveyor belt.
+        spawn(?MODULE, conveyor_belt, [N, self()])
     end, lists:seq(1, NumBelts)).
 
 conveyor_belt(Id, MainPid) ->
@@ -98,12 +102,12 @@ truck(Id, MainPid, Capacity) ->
             truck(Id, MainPid, Capacity - Size),
             if Size >= Capacity ->
                 %% Notify when truck is full
-                MainPid ! {truck_full, Id, TruckRest},
+                MainPid ! {truck_full, Id, TruckRest, Size},
                 exit(normal)
             end;
 
         {load_package, _Size, TruckRest} ->
-            MainPid ! {truck_full, Id, TruckRest},
+            MainPid ! {truck_full, Id, TruckRest, _Size},
             exit(normal)
     end.
 

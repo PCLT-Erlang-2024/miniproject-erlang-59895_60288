@@ -1,6 +1,7 @@
 -module(product_dist_task1).
 -export([start/3, start_trucks/2, start_conveyors/1, conveyor_belt/2, truck/3]).
 
+%% == Task 1 ==
 
 %%% ========================
 %%% Entry Point
@@ -61,7 +62,7 @@ finish(Conveyors, Trucks) ->
 
 create_packages(NumPackages) ->
     lists:map(fun(_) ->
-        10
+        1
     end, lists:seq(1, NumPackages)).
 
 %%% ========================
