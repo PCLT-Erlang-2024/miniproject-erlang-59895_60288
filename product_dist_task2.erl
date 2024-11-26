@@ -1,4 +1,4 @@
--module(product_dist_system).
+-module(product_dist_task2).
 -export([start/3, start_trucks/2, start_conveyors/1, conveyor_belt/2, truck/3]).
 
 
@@ -12,15 +12,13 @@ start(NumBelts, NumTrucks, TruckCapacity) ->
     io:format("Number of trucks: ~p~n", [NumTrucks]),
     io:format("Truck capacity: ~p~n", [TruckCapacity]),
 
-    % Start conveyor belts
     ConveyorPids = start_conveyors(NumBelts),
 
-    % Start trucks
     TruckPids = start_trucks(NumTrucks, TruckCapacity),
 
     Packages = create_packages(NumTrucks * TruckCapacity),
 
-    % Start main loop
+    % main loop
     loop(ConveyorPids, TruckPids, Packages).
 
 %%% ========================
@@ -63,7 +61,7 @@ finish(Conveyors, Trucks) ->
 
 create_packages(NumPackages) ->
     lists:map(fun(_) ->
-        10
+        rand:uniform(20)
     end, lists:seq(1, NumPackages)).
 
 %%% ========================
@@ -100,12 +98,13 @@ truck(Id, MainPid, Capacity) ->
             truck(Id, MainPid, Capacity - Size),
             if Size >= Capacity ->
                 %% Notify when truck is full
-                MainPid ! {truck_full, Id, TruckRest}
+                MainPid ! {truck_full, Id, TruckRest},
+                exit(normal)
             end;
 
         {load_package, _Size, TruckRest} ->
             MainPid ! {truck_full, Id, TruckRest},
-            truck(Id, MainPid, 100)
+            exit(normal)
     end.
 
 %%% ========================
