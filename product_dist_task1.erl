@@ -9,9 +9,9 @@
 
 start(NumBelts, NumTrucks, TruckCapacity) -> 
     io:format("== Product Distribution System ==~n"),
-    io:format("Number of belts: ~p~n", [NumBelts]), % 3
-    io:format("Number of trucks: ~p~n", [NumTrucks]), % 2
-    io:format("Truck capacity: ~p~n", [TruckCapacity]), % 2
+    io:format("Number of belts: ~p~n", [NumBelts]), 
+    io:format("Number of trucks: ~p~n", [NumTrucks]), 
+    io:format("Truck capacity: ~p~n", [TruckCapacity]), 
 
     TruckPids = start_trucks(NumTrucks, TruckCapacity),
     Packages = create_packages(NumTrucks * TruckCapacity),
@@ -103,7 +103,6 @@ conveyor_belt(Id, MainPid, PackageManagerPid, TruckManagerPid) ->
             exit(normal);
 
         {truck_full} ->
-            io:format("conveyor_belt AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
             TruckManagerPid ! {new_truck, self()}
     end.
 
