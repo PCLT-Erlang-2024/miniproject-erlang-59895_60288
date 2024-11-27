@@ -10,7 +10,7 @@ compile_task3:
 	erlc product_dist_task3.erl
 
 run_task1:
-	erl -noshell -eval "product_dist_task1:start(3, 10, 10)." -s init stop
+	erl -noshell -eval "product_dist_task1:start(3, 2, 50)." -s init stop
 
 run_task2:
 	erl -noshell -eval "product_dist_task2:start(3, 2, 50)." -s init stop

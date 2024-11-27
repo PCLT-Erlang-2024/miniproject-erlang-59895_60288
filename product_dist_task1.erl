@@ -9,21 +9,35 @@
 
 start(NumBelts, NumTrucks, TruckCapacity) -> 
     io:format("== Product Distribution System ==~n"),
-    io:format("Number of belts: ~p~n", [NumBelts]),
-    io:format("Number of trucks: ~p~n", [NumTrucks]),
-    io:format("Truck capacity: ~p~n", [TruckCapacity]),
+    io:format("Number of belts: ~p~n", [NumBelts]), % 3
+    io:format("Number of trucks: ~p~n", [NumTrucks]), % 2
+    io:format("Truck capacity: ~p~n", [TruckCapacity]), % 2
 
     TruckPids = start_trucks(NumTrucks, TruckCapacity),
     Packages = create_packages(NumTrucks * TruckCapacity),
     PackageManagerPid = spawn(?MODULE, package_manager, [Packages, self()]),
-    TruckMangerPid = spawn(?MODULE, truck_manager, [TruckPids]),
+    TruckManagerPid = spawn(?MODULE, truck_manager, [TruckPids]),
 
-    start_conveyors(NumBelts, PackageManagerPid, TruckMangerPid),
+    ConveyorPids = start_conveyors(NumBelts, PackageManagerPid, TruckManagerPid),
 
+    Monitors = lists:map(fun(Pid) -> 
+        monitor(process, Pid) 
+    end, [PackageManagerPid | TruckPids ++ ConveyorPids]),
+
+    % Wait for all processes to terminate
+    wait_for_termination(length(Monitors)),
+    io:format("Distribution complete.~n").
+
+wait_for_termination(0) -> ok;
+wait_for_termination(RemainingProcesses) ->
     receive
-        {no_more_packages} ->
-            io:format("Warehouse has no more packages.~n")
+        {'DOWN', _Ref, process, _Pid, normal} ->
+            wait_for_termination(RemainingProcesses - 1);
+        {'DOWN', _Ref, process, _Pid, _Reason} ->
+            io:format("Process terminated abnormally.~n"),
+            wait_for_termination(RemainingProcesses - 1)
     end.
+
 
 %%% ========================
 %%% Packages
@@ -31,7 +45,8 @@ start(NumBelts, NumTrucks, TruckCapacity) ->
 
 package_manager([], MainPid) ->
     MainPid ! {no_more_packages},
-    io:format("Package Manager: No more packages available.~n");
+    io:format("Package Manager: No more packages available.~n"), 
+    exit(normal);
 
 package_manager([Size | RestPackages], MainPid) ->
     receive
@@ -61,13 +76,15 @@ start_loading(TruckPid, PackageManagerPid, ConvId) ->
     PackageManagerPid ! {new_package, ConvId},
     receive
         {assign_package, Size} ->
-            io:format("Conveyor ~p: Loading package of size ~p onto Truck ~p.~n", [ConvId, Size, TruckPid]),
             timer:sleep(100),
-            TruckPid ! {load_package, Size, ConvId};
-        {truck_full} ->
-            ok;
-        {truck_not_full} ->
-            start_loading(TruckPid, PackageManagerPid, ConvId);
+            TruckPid ! {load_package, Size, ConvId},
+            io:format("Conveyor ~p: Loading package of size ~p onto Truck ~p.~n", [ConvId, Size, TruckPid]),
+            receive
+                {truck_not_full} ->
+                    start_loading(TruckPid, PackageManagerPid, ConvId);
+                {truck_full} ->
+                    ok
+            end;
         {not_more_packages} ->
             io:format("Conveyor ~p: No more packages to load. Terminating.~n", [ConvId]),
             exit(normal)
@@ -78,7 +95,6 @@ conveyor_belt(Id, MainPid, PackageManagerPid, TruckManagerPid) ->
     TruckManagerPid ! {new_truck, self()},
     receive
         {delivered_new_truck, TruckPid} ->
-            io:format("Conveyor ~p: Connected to Truck ~p.~n", [self(), TruckPid]),
             start_loading(TruckPid, PackageManagerPid, self()),
             conveyor_belt(Id, MainPid, PackageManagerPid, TruckManagerPid);
 
@@ -88,10 +104,7 @@ conveyor_belt(Id, MainPid, PackageManagerPid, TruckManagerPid) ->
 
         {truck_full} ->
             io:format("conveyor_belt AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
-            TruckManagerPid ! {new_truck, self()};
-        shutdown ->
-            io:format("Conveyor ~p: Shutting down.~n", [Id]),
-            exit(normal)
+            TruckManagerPid ! {new_truck, self()}
     end.
 
 
@@ -123,6 +136,7 @@ truck_manager([]) ->
     receive
         {new_truck, ConveyorId} ->
             ConveyorId ! {no_more_trucks},
+            io:format("Truck Manager: No more trucks available for ~p.~n", [ConveyorId]),
             truck_manager([])
     end;
 
@@ -131,5 +145,7 @@ truck_manager([TruckPid | TruckRest]) ->
         {new_truck, ConveyorId} ->
             io:format("Truck Manager: Assigning Truck ~p to Conveyor ~p.~n", [TruckPid, ConveyorId]),
             ConveyorId ! {delivered_new_truck, TruckPid},
-            truck_manager(TruckRest)
+            truck_manager(TruckRest);
+        stop ->
+            exit(normal)
     end.
