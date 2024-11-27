@@ -138,7 +138,6 @@ truck_manager([]) ->
     receive
         {new_truck, ConveyorId} ->
             ConveyorId ! {no_more_trucks},
-            % here
             io:format("Truck Manager: No more trucks available for ~p.~n", [ConveyorId]),
             truck_manager([])
     end;

@@ -11,7 +11,7 @@ start(NumBelts, NumTrucks, TruckCapacity) ->
     io:format("== Product Distribution System ==~n"),
     io:format("Number of belts: ~p~n", [NumBelts]), 
     io:format("Number of trucks: ~p~n", [NumTrucks]), 
-    io:format("Truck capacity: ~p~n", [TruckCapacity]),
+    io:format("Truck capacity: ~p~n", [TruckCapacity]), 
 
     TruckPids = start_trucks(NumTrucks, TruckCapacity),
     Packages = create_packages(NumTrucks * TruckCapacity),
@@ -22,7 +22,7 @@ start(NumBelts, NumTrucks, TruckCapacity) ->
 
     Monitors = lists:map(fun(Pid) -> 
         monitor(process, Pid) 
-    end, [PackageManagerPid | TruckPids ++ ConveyorPids]),
+    end, TruckPids ++ ConveyorPids),
 
     % Wait for all processes to terminate
     wait_for_termination(length(Monitors)),
@@ -53,13 +53,15 @@ package_manager([Size | RestPackages], MainPid) ->
         {new_package, ConveyorId} ->
             io:format("= Package Manager: Assigning package of size ~p to Conveyor ~p.~n= Packages left ~p~n", [Size, ConveyorId, length(RestPackages)]),
             ConveyorId ! {assign_package, Size},
-            package_manager(RestPackages, MainPid)
+            package_manager(RestPackages, MainPid);
+        {return_package, ReturnedSize} ->
+            package_manager([ReturnedSize | [Size | RestPackages]], MainPid)
     end.
 
 
 create_packages(NumPackages) ->
     lists:map(fun(_) ->
-        random:uniform(10)
+        rand:uniform(5)
     end, lists:seq(1, NumPackages)).
 
 %%% ========================
@@ -82,7 +84,10 @@ start_loading(TruckPid, PackageManagerPid, ConvId) ->
             receive
                 {truck_not_full} ->
                     start_loading(TruckPid, PackageManagerPid, ConvId);
-                {truck_full} ->
+                {truck_full, Size} ->
+                    PackageManagerPid ! {return_package, Size},
+                    io:format("Waiting for new truck.~n"),
+                    timer:sleep(800),
                     ok
             end;
         {not_more_packages} ->
@@ -103,10 +108,8 @@ conveyor_belt(Id, MainPid, PackageManagerPid, TruckManagerPid) ->
             exit(normal);
 
         {truck_full} ->
-            io:format("conveyor_belt AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
             TruckManagerPid ! {new_truck, self()}
     end.
-
 
 %%% ========================
 %%% Trucks
@@ -124,7 +127,7 @@ truck(Id, MainPid, Capacity, Load) ->
     receive
         {load_package, _Size, _ConvId} when _Size + Load >= Capacity ->
             io:format("Truck ~p: Full. Cannot load more packages.~n", [self()]),
-            _ConvId ! {truck_full},
+            _ConvId ! {truck_full, _Size},
             exit(normal);
         {load_package, Size, ConvId} when Size + Load < Capacity ->
             io:format("Truck ~p: Loaded package of size ~p. Remaining capacity: ~p~n", [Id, Size, Capacity - Size]),
