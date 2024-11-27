@@ -1,0 +1,3 @@
+# Code Explanation 
+
+Now, the conveyor belt sleeps for 800ms before requesting a new truck, which simulates the truck replacement time.

@@ -1,0 +1,37 @@
+# Code Explanation
+
+There are two produceres that start threads for each truck and the belt.
+We have a package manager that acts like a warehouse that conveyor belts can request packages from, and a truck manager that conveyor belts
+can request new trucks from if their current truck gets full.
+
+The conveyor belt's executions goes as follows:
+1. Request a new truck from the truck manager;
+2. Wait for a response from the truck manager;
+    2.1. If it gets a new truck as a response, start loading the truck like this:
+        2.1.1. Request a new package from the package manager;
+        2.1.2. Wait for a response from the package manager;
+        2.1.3. If it gets a new package as a response, load the package into the truck and call itself recursively;
+        2.1.4. If the package manager says there are no more packages, inform the truck and terminate.
+    2.2. If the truck manager says there are no more trucks, terminate.
+
+Meanwhile, the main process is keeping track of the different processes running and waits for them to finish before
+declaring the simulation as finished, using `erlang:monitor`.
+
+# Architecture
+                    
+                              +----------------+           
+                              |     Start      |           
+                              +----------------+           
+                                      |                    
+        +-----------------------------+-----------------------------+
+        |                             |                             |
+        v                             |                             v
++-------------------+                 |                   +-------------------+
+| create_packages   |                 |                   |   create_trucks   |
++-------------------+                 |                   +-------------------+ 
+        |                             |                             |
+        v                             v                             v
++-------------------+        +--------------------+        +-------------------+
+| package_manager   | <----> |   conveyor_belt    | <----> |   truck_manager   |
++-------------------+        |(NumBelts processes)|        +-------------------+ 
+                             +--------------------+

@@ -87,6 +87,7 @@ start_loading(TruckPid, PackageManagerPid, ConvId) ->
             end;
         {not_more_packages} ->
             io:format("Conveyor ~p: No more packages to load. Terminating.~n", [ConvId]),
+            TruckPid ! {no_more_packages},
             exit(normal)
     end.
 
@@ -106,7 +107,6 @@ conveyor_belt(Id, MainPid, PackageManagerPid, TruckManagerPid) ->
             TruckManagerPid ! {new_truck, self()}
     end.
 
-
 %%% ========================
 %%% Trucks
 %%% ========================
@@ -121,6 +121,9 @@ start_trucks(NumTrucks, TruckCapacity) ->
 
 truck(Id, MainPid, Capacity, Load) ->
     receive
+        {no_more_packages} ->
+            io:format("Truck ~p: No more packages to load. Terminating.~n", [Id]),
+            exit(normal);
         {load_package, _Size, _ConvId} when _Size + Load >= Capacity ->
             io:format("Truck ~p: Full. Cannot load more packages.~n", [self()]),
             _ConvId ! {truck_full},

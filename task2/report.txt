@@ -1,0 +1,5 @@
+# Code Explanation 
+
+Mostly the same, but now we set the size of each package using `rand:uniform`.
+Also, if a conveyor belt tries to load a package that is too big for the current truck, the truck will "leave"
+and the conveyor belt returns the package to the package manager.

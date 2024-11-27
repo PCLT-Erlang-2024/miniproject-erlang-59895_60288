@@ -1,7 +1,7 @@
--module(product_dist_task3).
+-module(product_dist_task2).
 -export([start/3, start_trucks/2, start_conveyors/3, conveyor_belt/4, truck/4, package_manager/2, truck_manager/1]).
 
-%% == Task 3 ==
+%% == Task 2 ==
 
 %%% ========================
 %%% Entry Point
@@ -86,12 +86,11 @@ start_loading(TruckPid, PackageManagerPid, ConvId) ->
                     start_loading(TruckPid, PackageManagerPid, ConvId);
                 {truck_full, Size} ->
                     PackageManagerPid ! {return_package, Size},
-                    io:format("Waiting for new truck.~n"),
-                    timer:sleep(800),
                     ok
             end;
         {not_more_packages} ->
             io:format("Conveyor ~p: No more packages to load. Terminating.~n", [ConvId]),
+            TruckPid ! {no_more_packages},
             exit(normal)
     end.
 
@@ -111,6 +110,7 @@ conveyor_belt(Id, MainPid, PackageManagerPid, TruckManagerPid) ->
             TruckManagerPid ! {new_truck, self()}
     end.
 
+
 %%% ========================
 %%% Trucks
 %%% ========================
@@ -125,6 +125,9 @@ start_trucks(NumTrucks, TruckCapacity) ->
 
 truck(Id, MainPid, Capacity, Load) ->
     receive
+        {no_more_packages} ->
+            io:format("Truck ~p: No more packages to load. Terminating.~n", [Id]),
+            exit(normal);
         {load_package, _Size, _ConvId} when _Size + Load >= Capacity ->
             io:format("Truck ~p: Full. Cannot load more packages.~n", [self()]),
             _ConvId ! {truck_full, _Size},
