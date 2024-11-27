@@ -1,5 +1,5 @@
 -module(product_dist_task1).
--export([start/3, start_trucks/2, start_conveyors/1, conveyor_belt/2, truck/3]).
+-export([start/3, start_trucks/2, start_conveyors/3, conveyor_belt/4, truck/4, package_manager/2, truck_manager/1]).
 
 %% == Task 1 ==
 
@@ -13,52 +13,34 @@ start(NumBelts, NumTrucks, TruckCapacity) ->
     io:format("Number of trucks: ~p~n", [NumTrucks]),
     io:format("Truck capacity: ~p~n", [TruckCapacity]),
 
-    ConveyorPids = start_conveyors(NumBelts),
-
     TruckPids = start_trucks(NumTrucks, TruckCapacity),
-
     Packages = create_packages(NumTrucks * TruckCapacity),
+    PackageManagerPid = spawn(?MODULE, package_manager, [Packages, self()]),
+    TruckMangerPid = spawn(?MODULE, truck_manager, [TruckPids]),
 
-    % main loop
-    loop(ConveyorPids, TruckPids, Packages).
+    start_conveyors(NumBelts, PackageManagerPid, TruckMangerPid),
 
-%%% ========================
-%%% Main Loop
-%%% ========================
-
-loop(Conveyors, Trucks, Packages) -> 
-    if
-        Packages =:= [] orelse Trucks =:= [] ->
-            finish(Conveyors, Trucks);
-        true ->
-            receive
-                {new_package, ConveyorId} ->
-                    %% New package created
-                    [Size | UpdatedPackages] = Packages,
-                    io:format("Conveyor ~p: Created package of size ~p~n", [ConveyorId, Size]),
-                    assign_packages(Size, Trucks),
-                    loop(Conveyors, Trucks, UpdatedPackages);
-
-                {truck_full, TruckId, TruckRest} ->
-                    %% Truck full notification
-                    io:format("Truck ~p: is full.~n", [TruckId]),
-                    loop(Conveyors, TruckRest, Packages)
-            end
+    receive
+        {no_more_packages} ->
+            io:format("Warehouse has no more packages.~n")
     end.
-
-finish(Conveyors, Trucks) ->
-    %% Shut down conveyor belt processes
-    lists:foreach(fun(Pid) -> exit(Pid, shutdown) end, Conveyors),
-
-    %% Shut down truck processes
-    lists:foreach(fun(Pid) -> exit(Pid, shutdown) end, Trucks),
-
-    io:format("All packages loaded onto trucks.~n"),
-    init:stop().
 
 %%% ========================
 %%% Packages
 %%% ========================
+
+package_manager([], MainPid) ->
+    MainPid ! {no_more_packages},
+    io:format("Package Manager: No more packages available.~n");
+
+package_manager([Size | RestPackages], MainPid) ->
+    receive
+        {new_package, ConveyorId} ->
+            io:format("= Package Manager: Assigning package of size ~p to Conveyor ~p.~n= Packages left ~p~n", [Size, ConveyorId, length(RestPackages)]),
+            ConveyorId ! {assign_package, Size},
+            package_manager(RestPackages, MainPid)
+    end.
+
 
 create_packages(NumPackages) ->
     lists:map(fun(_) ->
@@ -70,17 +52,48 @@ create_packages(NumPackages) ->
 %%% ========================
 
 % Spawns conveyor belt processes.
-start_conveyors(NumBelts) ->
+start_conveyors(NumBelts, PackageManagerPid, TruckManagerPid) ->
     lists:map(fun(N) ->
-        spawn(?MODULE, conveyor_belt, [N, self()]) % N will be the id of the conveyor belt.
+        spawn(?MODULE, conveyor_belt, [N, self(), PackageManagerPid, TruckManagerPid]) 
     end, lists:seq(1, NumBelts)).
 
-conveyor_belt(Id, MainPid) ->
+start_loading(TruckPid, PackageManagerPid, ConvId) ->
+    PackageManagerPid ! {new_package, ConvId},
+    receive
+        {assign_package, Size} ->
+            io:format("Conveyor ~p: Loading package of size ~p onto Truck ~p.~n", [ConvId, Size, TruckPid]),
+            timer:sleep(100),
+            TruckPid ! {load_package, Size, ConvId};
+        {truck_full} ->
+            ok;
+        {truck_not_full} ->
+            start_loading(TruckPid, PackageManagerPid, ConvId);
+        {not_more_packages} ->
+            io:format("Conveyor ~p: No more packages to load. Terminating.~n", [ConvId]),
+            exit(normal)
+    end.
 
-    MainPid ! {new_package, Id}, 
+conveyor_belt(Id, MainPid, PackageManagerPid, TruckManagerPid) ->
+    io:format("Conveyor ~p requested new truck.~n", [self()]),
+    TruckManagerPid ! {new_truck, self()},
+    receive
+        {delivered_new_truck, TruckPid} ->
+            io:format("Conveyor ~p: Connected to Truck ~p.~n", [self(), TruckPid]),
+            start_loading(TruckPid, PackageManagerPid, self()),
+            conveyor_belt(Id, MainPid, PackageManagerPid, TruckManagerPid);
 
-    timer:sleep(500),
-    conveyor_belt(Id, MainPid).
+        {no_more_trucks} ->
+            io:format("Conveyor ~p: No more trucks available.~n", [Id]),
+            exit(normal);
+
+        {truck_full} ->
+            io:format("conveyor_belt AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+            TruckManagerPid ! {new_truck, self()};
+        shutdown ->
+            io:format("Conveyor ~p: Shutting down.~n", [Id]),
+            exit(normal)
+    end.
+
 
 %%% ========================
 %%% Trucks
@@ -89,32 +102,34 @@ conveyor_belt(Id, MainPid) ->
 % Spawns truck processes.
 start_trucks(NumTrucks, TruckCapacity) ->
     lists:map(fun(N) ->
-        spawn(?MODULE, truck, [N, self(), TruckCapacity])
+        TruckPid = spawn(?MODULE, truck, [N, self(), TruckCapacity, 0]),
+        io:format("Truck ~p: Started with capacity ~p.~n", [TruckPid, TruckCapacity]),
+        TruckPid
     end, lists:seq(1, NumTrucks)).
 
-truck(Id, MainPid, Capacity) ->
+truck(Id, MainPid, Capacity, Load) ->
     receive
-        {load_package, Size, TruckRest} when Size =< Capacity ->
+        {load_package, _Size, _ConvId} when _Size + Load >= Capacity ->
+            io:format("Truck ~p: Full. Cannot load more packages.~n", [self()]),
+            _ConvId ! {truck_full},
+            exit(normal);
+        {load_package, Size, ConvId} when Size + Load < Capacity ->
             io:format("Truck ~p: Loaded package of size ~p. Remaining capacity: ~p~n", [Id, Size, Capacity - Size]),
-            truck(Id, MainPid, Capacity - Size),
-            if Size >= Capacity ->
-                %% Notify when truck is full
-                MainPid ! {truck_full, Id, TruckRest},
-                exit(normal)
-            end;
-
-        {load_package, _Size, TruckRest} ->
-            MainPid ! {truck_full, Id, TruckRest},
-            exit(normal)
+            ConvId ! {truck_not_full},
+            truck(Id, MainPid, Capacity, Load + Size)
     end.
 
-%%% ========================
-%%% Package Assignment
-%%% ========================
+truck_manager([]) ->
+    receive
+        {new_truck, ConveyorId} ->
+            ConveyorId ! {no_more_trucks},
+            truck_manager([])
+    end;
 
-assign_packages(_, []) -> 
-    [];
-
-assign_packages(Size, [TruckPid | TruckRest]) ->
-    TruckPid ! {load_package, Size, TruckRest}.
-
+truck_manager([TruckPid | TruckRest]) ->
+    receive
+        {new_truck, ConveyorId} ->
+            io:format("Truck Manager: Assigning Truck ~p to Conveyor ~p.~n", [TruckPid, ConveyorId]),
+            ConveyorId ! {delivered_new_truck, TruckPid},
+            truck_manager(TruckRest)
+    end.
